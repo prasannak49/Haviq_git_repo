@@ -1,0 +1,4 @@
+# Org-specific metadata — not safe to deploy across orgs
+**/profiles/**
+**/layouts/**
+**/permissionsetgroups/**
