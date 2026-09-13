@@ -1,0 +1,41 @@
+# Salesforce CLI
+.sfdx/
+.sf/
+*.log
+
+# Keys and certificates — never commit
+*.key
+*.crt
+*.pem
+*.p12
+*.pfx
+*.jks
+*.der
+*.csr
+server*.key
+server*.crt
+
+# Salesforce CLI auth material — an auth URL is a full org credential
+*.sfdx-auth-url
+sfdx-auth-url*.txt
+authFile*.json
+
+# Local environment / secret config
+.env
+.env.*
+*.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Node
+node_modules/
+
+# Deploy manifests — generated at deploy time, never committed (OI-292)
+manifest/package.xml
+manifest/destructiveChanges.xml
