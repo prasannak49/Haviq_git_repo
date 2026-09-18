@@ -33,7 +33,7 @@
     <status>Active</status>
     <subflows>
         <flowName>SvcCopilotTmpl__AddCaseComment</flowName>
-        <label>Call case comment</label>
+        <label>Call case comment Edit flow update 2</label>
         <locationX>0</locationX>
         <locationY>0</locationY>
         <name>Call_case_comment</name>
