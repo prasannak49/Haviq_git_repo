@@ -48,7 +48,9 @@ jobs:
           echo "$HAVIQ_VARS" | jq -r --arg k "HAVIQ_DESTRUCTIVE_$TOK" '.[$k] // empty' > manifest/destructiveChanges.xml
           echo "[OI-292] manifest (dep $TOK):"; cat manifest/package.xml
       - run: |
-          sf project deploy start --manifest manifest/package.xml --target-org target --test-level NoTestRun
+          # OI-472: "Validate" must validate, not deploy.
+          git log -20 --pretty=%B | grep -m1 "\[haviq\]" | grep -q "\[validate-only\]" && DCMD=validate || DCMD=start
+          sf project deploy $DCMD --manifest manifest/package.xml --target-org target --test-level NoTestRun
       - name: Notify HAV-IQ
         if: failure()
         env:
@@ -77,9 +79,9 @@ jobs:
           SF_TOKEN=$(sf org auth show-access-token --target-org haviq-hub --json | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['result']['accessToken'])" 2>/dev/null || echo "")
           if [ -n "$SF_TOKEN" ]; then
             if [ -n "$FAILURE_REASON_JSON" ]; then
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON,\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             else
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\"$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             fi
             HAVIQ_HTTP=$(curl -s -o /tmp/haviq_cb.out -w "%{http_code}" -X POST "${{ vars.HAVIQ_URL }}/services/apexrest/haviq/pipeline/webhook" -H "Authorization: Bearer $SF_TOKEN" -H "Content-Type: application/json" -H "x-sf-devops-secret: $SF_WEBHOOK_SECRET" -d "$BODY" || echo "000")
             echo "HAV-IQ callback HTTP $HAVIQ_HTTP"; cat /tmp/haviq_cb.out 2>/dev/null || true
@@ -123,7 +125,9 @@ jobs:
           echo "$HAVIQ_VARS" | jq -r --arg k "HAVIQ_DESTRUCTIVE_$TOK" '.[$k] // empty' > manifest/destructiveChanges.xml
           echo "[OI-292] manifest (dep $TOK):"; cat manifest/package.xml
       - run: |
-          sf project deploy start --manifest manifest/package.xml --target-org target
+          # OI-472: "Validate" must validate, not deploy.
+          git log -20 --pretty=%B | grep -m1 "\[haviq\]" | grep -q "\[validate-only\]" && DCMD=validate || DCMD=start
+          sf project deploy $DCMD --manifest manifest/package.xml --target-org target
       - name: Notify HAV-IQ
         if: always()
         env:
@@ -152,9 +156,9 @@ jobs:
           SF_TOKEN=$(sf org auth show-access-token --target-org haviq-hub --json | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['result']['accessToken'])" 2>/dev/null || echo "")
           if [ -n "$SF_TOKEN" ]; then
             if [ -n "$FAILURE_REASON_JSON" ]; then
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON,\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             else
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\"$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             fi
             HAVIQ_HTTP=$(curl -s -o /tmp/haviq_cb.out -w "%{http_code}" -X POST "${{ vars.HAVIQ_URL }}/services/apexrest/haviq/pipeline/webhook" -H "Authorization: Bearer $SF_TOKEN" -H "Content-Type: application/json" -H "x-sf-devops-secret: $SF_WEBHOOK_SECRET" -d "$BODY" || echo "000")
             echo "HAV-IQ callback HTTP $HAVIQ_HTTP"; cat /tmp/haviq_cb.out 2>/dev/null || true
@@ -254,9 +258,9 @@ jobs:
           SF_TOKEN=$(sf org auth show-access-token --target-org haviq-hub --json | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['result']['accessToken'])" 2>/dev/null || echo "")
           if [ -n "$SF_TOKEN" ]; then
             if [ -n "$FAILURE_REASON_JSON" ]; then
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON,\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             else
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\"$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             fi
             HAVIQ_HTTP=$(curl -s -o /tmp/haviq_cb.out -w "%{http_code}" -X POST "${{ vars.HAVIQ_URL }}/services/apexrest/haviq/pipeline/webhook" -H "Authorization: Bearer $SF_TOKEN" -H "Content-Type: application/json" -H "x-sf-devops-secret: $SF_WEBHOOK_SECRET" -d "$BODY" || echo "000")
             echo "HAV-IQ callback HTTP $HAVIQ_HTTP"; cat /tmp/haviq_cb.out 2>/dev/null || true
@@ -280,6 +284,9 @@ jobs:
           sf org login jwt --client-id ${{ vars.SF_CLIENT_ID_PRODUCTION }} --jwt-key-file server.key --username ${{ vars.SF_USERNAME_PRODUCTION }} --instance-url ${{ vars.SF_ORG_URL_PRODUCTION }} --alias target
           if [ ! -f manifest/destructiveChanges.xml ] || ! grep -q "<members>" manifest/destructiveChanges.xml; then
             echo "No destructive changes for this deploy — nothing to do."; exit 0
+          fi
+          if git log -20 --pretty=%B | grep -m1 "\[haviq\]" | grep -q "\[validate-only\]"; then
+            echo "Validate-only run — skipping destructive changes."; exit 0
           fi
       - name: Resolve HAV-IQ manifest
         env:
@@ -305,6 +312,9 @@ jobs:
       - run: |
           if [ ! -f manifest/destructiveChanges.xml ] || ! grep -q "<members>" manifest/destructiveChanges.xml; then
             echo "No destructive changes for this deploy — nothing to do."; exit 0
+          fi
+          if git log -20 --pretty=%B | grep -m1 "\[haviq\]" | grep -q "\[validate-only\]"; then
+            echo "Validate-only run — skipping destructive changes."; exit 0
           fi
           set +e
           DOUT=$(sf project deploy start --manifest manifest/package.xml --pre-destructive-changes manifest/destructiveChanges.xml --target-org target --wait 30 2>&1)
@@ -352,9 +362,9 @@ jobs:
           SF_TOKEN=$(sf org auth show-access-token --target-org haviq-hub --json | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['result']['accessToken'])" 2>/dev/null || echo "")
           if [ -n "$SF_TOKEN" ]; then
             if [ -n "$FAILURE_REASON_JSON" ]; then
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON,\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             else
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\"$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             fi
             HAVIQ_HTTP=$(curl -s -o /tmp/haviq_cb.out -w "%{http_code}" -X POST "${{ vars.HAVIQ_URL }}/services/apexrest/haviq/pipeline/webhook" -H "Authorization: Bearer $SF_TOKEN" -H "Content-Type: application/json" -H "x-sf-devops-secret: $SF_WEBHOOK_SECRET" -d "$BODY" || echo "000")
             echo "HAV-IQ callback HTTP $HAVIQ_HTTP"; cat /tmp/haviq_cb.out 2>/dev/null || true
@@ -399,7 +409,9 @@ jobs:
           echo "$HAVIQ_VARS" | jq -r --arg k "HAVIQ_DESTRUCTIVE_$TOK" '.[$k] // empty' > manifest/destructiveChanges.xml
           echo "[OI-292] manifest (dep $TOK):"; cat manifest/package.xml
       - run: |
-          sf project deploy start --manifest manifest/package.xml --target-org target --test-level NoTestRun
+          # OI-472: "Validate" must validate, not deploy.
+          git log -20 --pretty=%B | grep -m1 "\[haviq\]" | grep -q "\[validate-only\]" && DCMD=validate || DCMD=start
+          sf project deploy $DCMD --manifest manifest/package.xml --target-org target --test-level NoTestRun
       - name: Notify HAV-IQ
         if: failure()
         env:
@@ -428,9 +440,9 @@ jobs:
           SF_TOKEN=$(sf org auth show-access-token --target-org haviq-hub --json | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['result']['accessToken'])" 2>/dev/null || echo "")
           if [ -n "$SF_TOKEN" ]; then
             if [ -n "$FAILURE_REASON_JSON" ]; then
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON,\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             else
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\"$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             fi
             HAVIQ_HTTP=$(curl -s -o /tmp/haviq_cb.out -w "%{http_code}" -X POST "${{ vars.HAVIQ_URL }}/services/apexrest/haviq/pipeline/webhook" -H "Authorization: Bearer $SF_TOKEN" -H "Content-Type: application/json" -H "x-sf-devops-secret: $SF_WEBHOOK_SECRET" -d "$BODY" || echo "000")
             echo "HAV-IQ callback HTTP $HAVIQ_HTTP"; cat /tmp/haviq_cb.out 2>/dev/null || true
@@ -474,7 +486,9 @@ jobs:
           echo "$HAVIQ_VARS" | jq -r --arg k "HAVIQ_DESTRUCTIVE_$TOK" '.[$k] // empty' > manifest/destructiveChanges.xml
           echo "[OI-292] manifest (dep $TOK):"; cat manifest/package.xml
       - run: |
-          sf project deploy start --manifest manifest/package.xml --target-org target
+          # OI-472: "Validate" must validate, not deploy.
+          git log -20 --pretty=%B | grep -m1 "\[haviq\]" | grep -q "\[validate-only\]" && DCMD=validate || DCMD=start
+          sf project deploy $DCMD --manifest manifest/package.xml --target-org target
       - name: Notify HAV-IQ
         if: always()
         env:
@@ -503,9 +517,9 @@ jobs:
           SF_TOKEN=$(sf org auth show-access-token --target-org haviq-hub --json | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['result']['accessToken'])" 2>/dev/null || echo "")
           if [ -n "$SF_TOKEN" ]; then
             if [ -n "$FAILURE_REASON_JSON" ]; then
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON,\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             else
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\"$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             fi
             HAVIQ_HTTP=$(curl -s -o /tmp/haviq_cb.out -w "%{http_code}" -X POST "${{ vars.HAVIQ_URL }}/services/apexrest/haviq/pipeline/webhook" -H "Authorization: Bearer $SF_TOKEN" -H "Content-Type: application/json" -H "x-sf-devops-secret: $SF_WEBHOOK_SECRET" -d "$BODY" || echo "000")
             echo "HAV-IQ callback HTTP $HAVIQ_HTTP"; cat /tmp/haviq_cb.out 2>/dev/null || true
@@ -605,9 +619,9 @@ jobs:
           SF_TOKEN=$(sf org auth show-access-token --target-org haviq-hub --json | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['result']['accessToken'])" 2>/dev/null || echo "")
           if [ -n "$SF_TOKEN" ]; then
             if [ -n "$FAILURE_REASON_JSON" ]; then
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON,\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             else
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\"$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             fi
             HAVIQ_HTTP=$(curl -s -o /tmp/haviq_cb.out -w "%{http_code}" -X POST "${{ vars.HAVIQ_URL }}/services/apexrest/haviq/pipeline/webhook" -H "Authorization: Bearer $SF_TOKEN" -H "Content-Type: application/json" -H "x-sf-devops-secret: $SF_WEBHOOK_SECRET" -d "$BODY" || echo "000")
             echo "HAV-IQ callback HTTP $HAVIQ_HTTP"; cat /tmp/haviq_cb.out 2>/dev/null || true
@@ -631,6 +645,9 @@ jobs:
           sf org login jwt --client-id ${{ vars.SF_CLIENT_ID_QA }} --jwt-key-file server.key --username ${{ vars.SF_USERNAME_QA }} --instance-url ${{ vars.SF_ORG_URL_QA }} --alias target
           if [ ! -f manifest/destructiveChanges.xml ] || ! grep -q "<members>" manifest/destructiveChanges.xml; then
             echo "No destructive changes for this deploy — nothing to do."; exit 0
+          fi
+          if git log -20 --pretty=%B | grep -m1 "\[haviq\]" | grep -q "\[validate-only\]"; then
+            echo "Validate-only run — skipping destructive changes."; exit 0
           fi
       - name: Resolve HAV-IQ manifest
         env:
@@ -656,6 +673,9 @@ jobs:
       - run: |
           if [ ! -f manifest/destructiveChanges.xml ] || ! grep -q "<members>" manifest/destructiveChanges.xml; then
             echo "No destructive changes for this deploy — nothing to do."; exit 0
+          fi
+          if git log -20 --pretty=%B | grep -m1 "\[haviq\]" | grep -q "\[validate-only\]"; then
+            echo "Validate-only run — skipping destructive changes."; exit 0
           fi
           set +e
           DOUT=$(sf project deploy start --manifest manifest/package.xml --pre-destructive-changes manifest/destructiveChanges.xml --target-org target --wait 30 2>&1)
@@ -703,9 +723,9 @@ jobs:
           SF_TOKEN=$(sf org auth show-access-token --target-org haviq-hub --json | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['result']['accessToken'])" 2>/dev/null || echo "")
           if [ -n "$SF_TOKEN" ]; then
             if [ -n "$FAILURE_REASON_JSON" ]; then
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON,\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             else
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\"$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             fi
             HAVIQ_HTTP=$(curl -s -o /tmp/haviq_cb.out -w "%{http_code}" -X POST "${{ vars.HAVIQ_URL }}/services/apexrest/haviq/pipeline/webhook" -H "Authorization: Bearer $SF_TOKEN" -H "Content-Type: application/json" -H "x-sf-devops-secret: $SF_WEBHOOK_SECRET" -d "$BODY" || echo "000")
             echo "HAV-IQ callback HTTP $HAVIQ_HTTP"; cat /tmp/haviq_cb.out 2>/dev/null || true
@@ -750,7 +770,9 @@ jobs:
           echo "$HAVIQ_VARS" | jq -r --arg k "HAVIQ_DESTRUCTIVE_$TOK" '.[$k] // empty' > manifest/destructiveChanges.xml
           echo "[OI-292] manifest (dep $TOK):"; cat manifest/package.xml
       - run: |
-          sf project deploy start --manifest manifest/package.xml --target-org target --test-level NoTestRun
+          # OI-472: "Validate" must validate, not deploy.
+          git log -20 --pretty=%B | grep -m1 "\[haviq\]" | grep -q "\[validate-only\]" && DCMD=validate || DCMD=start
+          sf project deploy $DCMD --manifest manifest/package.xml --target-org target --test-level NoTestRun
       - name: Notify HAV-IQ
         if: failure()
         env:
@@ -779,9 +801,9 @@ jobs:
           SF_TOKEN=$(sf org auth show-access-token --target-org haviq-hub --json | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['result']['accessToken'])" 2>/dev/null || echo "")
           if [ -n "$SF_TOKEN" ]; then
             if [ -n "$FAILURE_REASON_JSON" ]; then
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON,\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             else
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\"$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             fi
             HAVIQ_HTTP=$(curl -s -o /tmp/haviq_cb.out -w "%{http_code}" -X POST "${{ vars.HAVIQ_URL }}/services/apexrest/haviq/pipeline/webhook" -H "Authorization: Bearer $SF_TOKEN" -H "Content-Type: application/json" -H "x-sf-devops-secret: $SF_WEBHOOK_SECRET" -d "$BODY" || echo "000")
             echo "HAV-IQ callback HTTP $HAVIQ_HTTP"; cat /tmp/haviq_cb.out 2>/dev/null || true
@@ -825,7 +847,9 @@ jobs:
           echo "$HAVIQ_VARS" | jq -r --arg k "HAVIQ_DESTRUCTIVE_$TOK" '.[$k] // empty' > manifest/destructiveChanges.xml
           echo "[OI-292] manifest (dep $TOK):"; cat manifest/package.xml
       - run: |
-          sf project deploy start --manifest manifest/package.xml --target-org target
+          # OI-472: "Validate" must validate, not deploy.
+          git log -20 --pretty=%B | grep -m1 "\[haviq\]" | grep -q "\[validate-only\]" && DCMD=validate || DCMD=start
+          sf project deploy $DCMD --manifest manifest/package.xml --target-org target
       - name: Notify HAV-IQ
         if: always()
         env:
@@ -854,9 +878,9 @@ jobs:
           SF_TOKEN=$(sf org auth show-access-token --target-org haviq-hub --json | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['result']['accessToken'])" 2>/dev/null || echo "")
           if [ -n "$SF_TOKEN" ]; then
             if [ -n "$FAILURE_REASON_JSON" ]; then
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON,\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             else
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\"$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             fi
             HAVIQ_HTTP=$(curl -s -o /tmp/haviq_cb.out -w "%{http_code}" -X POST "${{ vars.HAVIQ_URL }}/services/apexrest/haviq/pipeline/webhook" -H "Authorization: Bearer $SF_TOKEN" -H "Content-Type: application/json" -H "x-sf-devops-secret: $SF_WEBHOOK_SECRET" -d "$BODY" || echo "000")
             echo "HAV-IQ callback HTTP $HAVIQ_HTTP"; cat /tmp/haviq_cb.out 2>/dev/null || true
@@ -956,9 +980,9 @@ jobs:
           SF_TOKEN=$(sf org auth show-access-token --target-org haviq-hub --json | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['result']['accessToken'])" 2>/dev/null || echo "")
           if [ -n "$SF_TOKEN" ]; then
             if [ -n "$FAILURE_REASON_JSON" ]; then
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON,\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             else
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\"$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             fi
             HAVIQ_HTTP=$(curl -s -o /tmp/haviq_cb.out -w "%{http_code}" -X POST "${{ vars.HAVIQ_URL }}/services/apexrest/haviq/pipeline/webhook" -H "Authorization: Bearer $SF_TOKEN" -H "Content-Type: application/json" -H "x-sf-devops-secret: $SF_WEBHOOK_SECRET" -d "$BODY" || echo "000")
             echo "HAV-IQ callback HTTP $HAVIQ_HTTP"; cat /tmp/haviq_cb.out 2>/dev/null || true
@@ -982,6 +1006,9 @@ jobs:
           sf org login jwt --client-id ${{ vars.SF_CLIENT_ID_QA }} --jwt-key-file server.key --username ${{ vars.SF_USERNAME_QA }} --instance-url ${{ vars.SF_ORG_URL_QA }} --alias target
           if [ ! -f manifest/destructiveChanges.xml ] || ! grep -q "<members>" manifest/destructiveChanges.xml; then
             echo "No destructive changes for this deploy — nothing to do."; exit 0
+          fi
+          if git log -20 --pretty=%B | grep -m1 "\[haviq\]" | grep -q "\[validate-only\]"; then
+            echo "Validate-only run — skipping destructive changes."; exit 0
           fi
       - name: Resolve HAV-IQ manifest
         env:
@@ -1007,6 +1034,9 @@ jobs:
       - run: |
           if [ ! -f manifest/destructiveChanges.xml ] || ! grep -q "<members>" manifest/destructiveChanges.xml; then
             echo "No destructive changes for this deploy — nothing to do."; exit 0
+          fi
+          if git log -20 --pretty=%B | grep -m1 "\[haviq\]" | grep -q "\[validate-only\]"; then
+            echo "Validate-only run — skipping destructive changes."; exit 0
           fi
           set +e
           DOUT=$(sf project deploy start --manifest manifest/package.xml --pre-destructive-changes manifest/destructiveChanges.xml --target-org target --wait 30 2>&1)
@@ -1054,9 +1084,9 @@ jobs:
           SF_TOKEN=$(sf org auth show-access-token --target-org haviq-hub --json | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['result']['accessToken'])" 2>/dev/null || echo "")
           if [ -n "$SF_TOKEN" ]; then
             if [ -n "$FAILURE_REASON_JSON" ]; then
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON,\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             else
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\"$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             fi
             HAVIQ_HTTP=$(curl -s -o /tmp/haviq_cb.out -w "%{http_code}" -X POST "${{ vars.HAVIQ_URL }}/services/apexrest/haviq/pipeline/webhook" -H "Authorization: Bearer $SF_TOKEN" -H "Content-Type: application/json" -H "x-sf-devops-secret: $SF_WEBHOOK_SECRET" -d "$BODY" || echo "000")
             echo "HAV-IQ callback HTTP $HAVIQ_HTTP"; cat /tmp/haviq_cb.out 2>/dev/null || true
@@ -1157,9 +1187,9 @@ jobs:
           SF_TOKEN=$(sf org auth show-access-token --target-org haviq-hub --json | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['result']['accessToken'])" 2>/dev/null || echo "")
           if [ -n "$SF_TOKEN" ]; then
             if [ -n "$FAILURE_REASON_JSON" ]; then
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON,\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             else
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\"$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             fi
             HAVIQ_HTTP=$(curl -s -o /tmp/haviq_cb.out -w "%{http_code}" -X POST "${{ vars.HAVIQ_URL }}/services/apexrest/haviq/pipeline/webhook" -H "Authorization: Bearer $SF_TOKEN" -H "Content-Type: application/json" -H "x-sf-devops-secret: $SF_WEBHOOK_SECRET" -d "$BODY" || echo "000")
             echo "HAV-IQ callback HTTP $HAVIQ_HTTP"; cat /tmp/haviq_cb.out 2>/dev/null || true
@@ -1260,9 +1290,9 @@ jobs:
           SF_TOKEN=$(sf org auth show-access-token --target-org haviq-hub --json | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['result']['accessToken'])" 2>/dev/null || echo "")
           if [ -n "$SF_TOKEN" ]; then
             if [ -n "$FAILURE_REASON_JSON" ]; then
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON,\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             else
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\"$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             fi
             HAVIQ_HTTP=$(curl -s -o /tmp/haviq_cb.out -w "%{http_code}" -X POST "${{ vars.HAVIQ_URL }}/services/apexrest/haviq/pipeline/webhook" -H "Authorization: Bearer $SF_TOKEN" -H "Content-Type: application/json" -H "x-sf-devops-secret: $SF_WEBHOOK_SECRET" -d "$BODY" || echo "000")
             echo "HAV-IQ callback HTTP $HAVIQ_HTTP"; cat /tmp/haviq_cb.out 2>/dev/null || true
@@ -1363,9 +1393,9 @@ jobs:
           SF_TOKEN=$(sf org auth show-access-token --target-org haviq-hub --json | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['result']['accessToken'])" 2>/dev/null || echo "")
           if [ -n "$SF_TOKEN" ]; then
             if [ -n "$FAILURE_REASON_JSON" ]; then
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON,\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             else
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\"$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             fi
             HAVIQ_HTTP=$(curl -s -o /tmp/haviq_cb.out -w "%{http_code}" -X POST "${{ vars.HAVIQ_URL }}/services/apexrest/haviq/pipeline/webhook" -H "Authorization: Bearer $SF_TOKEN" -H "Content-Type: application/json" -H "x-sf-devops-secret: $SF_WEBHOOK_SECRET" -d "$BODY" || echo "000")
             echo "HAV-IQ callback HTTP $HAVIQ_HTTP"; cat /tmp/haviq_cb.out 2>/dev/null || true
@@ -1466,9 +1496,9 @@ jobs:
           SF_TOKEN=$(sf org auth show-access-token --target-org haviq-hub --json | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['result']['accessToken'])" 2>/dev/null || echo "")
           if [ -n "$SF_TOKEN" ]; then
             if [ -n "$FAILURE_REASON_JSON" ]; then
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON,\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             else
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\"$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             fi
             HAVIQ_HTTP=$(curl -s -o /tmp/haviq_cb.out -w "%{http_code}" -X POST "${{ vars.HAVIQ_URL }}/services/apexrest/haviq/pipeline/webhook" -H "Authorization: Bearer $SF_TOKEN" -H "Content-Type: application/json" -H "x-sf-devops-secret: $SF_WEBHOOK_SECRET" -d "$BODY" || echo "000")
             echo "HAV-IQ callback HTTP $HAVIQ_HTTP"; cat /tmp/haviq_cb.out 2>/dev/null || true
@@ -1600,9 +1630,9 @@ jobs:
           SF_TOKEN=$(sf org auth show-access-token --target-org haviq-hub --json | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['result']['accessToken'])" 2>/dev/null || echo "")
           if [ -n "$SF_TOKEN" ]; then
             if [ -n "$FAILURE_REASON_JSON" ]; then
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"failureReason\":$FAILURE_REASON_JSON,\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             else
-              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\"$ABSENT_JSON}"
+              BODY="{\"branch\":\"$SF_BRANCH\",\"commitSha\":\"$SF_COMMIT_SHA\",\"deploymentId\":\"$SF_DEPLOYMENT_ID\",\"status\":\"$STATUS\",\"ciRunUrl\":\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"$ABSENT_JSON}"
             fi
             HAVIQ_HTTP=$(curl -s -o /tmp/haviq_cb.out -w "%{http_code}" -X POST "${{ vars.HAVIQ_URL }}/services/apexrest/haviq/pipeline/webhook" -H "Authorization: Bearer $SF_TOKEN" -H "Content-Type: application/json" -H "x-sf-devops-secret: $SF_WEBHOOK_SECRET" -d "$BODY" || echo "000")
             echo "HAV-IQ callback HTTP $HAVIQ_HTTP"; cat /tmp/haviq_cb.out 2>/dev/null || true
