@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Workflow xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fieldUpdates>
+        <fullName>Flag_High_Value_Description</fullName>
+        <description>Prepends a high-value flag to the Opportunity Description.</description>
+        <field>Description</field>
+        <formula>&quot;[HIGH VALUE - &quot; &amp; TEXT(TODAY()) &amp; &quot;] &quot; &amp; BLANKVALUE(Description, &quot;&quot;)</formula>
+        <name>Flag Low Value Description</name>
+        <notifyAssignee>false</notifyAssignee>
+        <operation>Formula</operation>
+        <protected>false</protected>
+        <reevaluateOnChange>true</reevaluateOnChange>
+    </fieldUpdates>
+    <rules>
+        <fullName>High_Value_Opportunity_Flag</fullName>
+        <actions>
+            <name>Flag_High_Value_Description</name>
+            <type>FieldUpdate</type>
+        </actions>
+        <active>true</active>
+        <description>Flags Opportunities with Amount ≥ 100,000 that are still open by stamping the Description.</description>
+        <formula>AND( NOT(IsClosed), Amount &gt;= 100000 )</formula>
+        <triggerType>onAllChanges</triggerType>
+    </rules>
+</Workflow>
