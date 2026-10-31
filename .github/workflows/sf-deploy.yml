@@ -6,6 +6,10 @@ on:
       - "promote/**"
       - "rollback/**"
       - "feature/*-to-*-resolve-*"
+      - "dev"
+      - "dev1"
+      - "qa"
+      - "production"
   pull_request:
     types: [opened, synchronize, reopened]
 
@@ -1197,6 +1201,139 @@ jobs:
           fi
           rm -f /tmp/haviq.key
 
+  # ── Retrieve from dev (RM-CI-RETRIEVE)
+  haviq_retrieve_dev:
+    name: haviq:retrieve-dev
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'push'
+      && github.ref_name == 'dev'
+      && contains(github.event.head_commit.message, '[haviq-retrieve]')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install -g @salesforce/cli
+      - name: Retrieve and commit
+        env:
+          SF_JWT_KEY: ${{ secrets.SF_JWT_KEY_DEV }}
+        run: |
+          set -e
+          git log -1 --pretty=%B > /tmp/haviq_msg.txt
+          echo "$SF_JWT_KEY" > server.key
+          sf org login jwt --client-id ${{ vars.SF_CLIENT_ID_DEV }} --jwt-key-file server.key --username ${{ vars.SF_USERNAME_DEV }} --instance-url ${{ vars.SF_ORG_URL_DEV }} --alias haviq-source
+          if [ -f .forceignore ]; then
+            for T in $(grep -oE "<name>[A-Za-z]+</name>" manifest/haviq-retrieve.xml 2>/dev/null | sed "s/<[^>]*>//g" | sort -u); do
+              LT=$(echo "$T" | tr "[:upper:]" "[:lower:]")
+              if grep -qi "/${LT}s\?/" .forceignore; then
+                echo "[haviq] WARNING: .forceignore appears to exclude $T."
+                echo "[haviq] The CLI will write nothing for it and still exit 0."
+                echo "[haviq] Remove the matching line from .forceignore:"
+                grep -n -i "/${LT}s\?/" .forceignore | sed "s/^/[haviq]   /"
+              fi
+            done
+          fi
+          sf org list metadata-types --target-org haviq-source --json > /tmp/haviq_mdtypes.json 2>&1 || true
+          python3 -c "import json,re;raw=open('/tmp/haviq_mdtypes.json').read();raw=raw[raw.index(chr(123)):] if chr(123) in raw else '{}';objs=(json.loads(raw).get('result') or {}).get('metadataObjects') or [];sup=set();[sup.add(o['xmlName']) for o in objs if o.get('xmlName')];[sup.add(c) for o in objs for c in (o.get('childXmlNames') or [])];src=open('manifest/haviq-retrieve.xml').read();blocks=re.findall(r'<types>.*?</types>', src, re.S);nm=lambda b:(re.search(r'<name>(.*?)</name>', b) or [None,''])[1];keep=[b for b in blocks if not sup or nm(b) in sup];drop=sorted(nm(b) for b in blocks if sup and nm(b) not in sup);v=re.search(r'<version>.*?</version>', src);open('/tmp/haviq_manifest.xml','w').write('<?xml version=\"1.0\" encoding=\"UTF-8\"?>' + chr(10) + '<Package xmlns=\"http://soap.sforce.com/2006/04/metadata\">' + chr(10) + chr(10).join(keep) + chr(10) + (v.group(0) if v else '<version>62.0</version>') + chr(10) + '</Package>');print('[haviq] types asked for: '+str(len(blocks))+', supported by this org: '+str(len(keep))+', not available here: '+str(len(drop)));print('[haviq] not in this org: '+','.join(drop[:25])+(' and more' if len(drop)>25 else '')) if drop else None;print('[haviq] NOTE: could not read the org type list; asking for everything') if not sup else None" || cp -f manifest/haviq-retrieve.xml /tmp/haviq_manifest.xml
+          if ! grep -q "<name>" /tmp/haviq_manifest.xml 2>/dev/null; then
+            echo "[haviq] None of the requested types exist in this org. Nothing to"
+            echo "[haviq] retrieve. Narrow My Scope to types this org actually has."
+            exit 1
+          fi
+          sf project retrieve start --manifest /tmp/haviq_manifest.xml --target-org haviq-source --wait 30 --json > /tmp/haviq_retrieve.json || true
+          python3 -c "import json;d=json.load(open('/tmp/haviq_retrieve.json'));r=d.get('result') or {};rows=r.get('files') or r.get('fileProperties');print('[haviq] retrieve did not return files. Full result below.') if not rows else None;print('[haviq] '+json.dumps({k:v for k,v in r.items() if k not in ('files','fileProperties')})[:1500]) if not rows else None" 2>/dev/null || echo "[haviq] retrieve produced no readable JSON at all"
+          python3 -c "import json;raw=open('/tmp/haviq_retrieve.json').read();raw=raw[raw.index(chr(123)):] if chr(123) in raw else '{}';d=json.loads(raw); r=d.get('result') or {};rows=r.get('files') or r.get('fileProperties') or [];S=set(['c','e','mdt','b','x','kav','Share','History','Feed','ChangeEvent','r']);nsp=lambda n:(lambda p: len(p)>1 and not (len(p)==2 and p[1] in S))(n.replace('-','.').split('.')[-1].split('__'));man=lambda f: bool(f.get('namespacePrefix')) or (f.get('manageableState') not in (None,'unmanaged')) or nsp(f.get('fullName',''));ok=[f for f in rows if f.get('type') and f.get('fullName') and str(f.get('state','')).lower()!='failed' and not man(f)];mg=[f for f in rows if man(f)];open('/tmp/haviq_members.txt','w').write(','.join(sorted(set(f['type']+':'+f['fullName'] for f in ok))));open('/tmp/haviq_drop.txt','w').write(chr(10).join(f.get('filePath') or f.get('fullName') for f in mg));print('[haviq] managed components excluded: '+str(len(mg))+' of '+str(len(rows)))" 2>/dev/null || printf "" > /tmp/haviq_members.txt
+          MEMBERS=$(cat /tmp/haviq_members.txt 2>/dev/null || echo "")
+          echo "[haviq] retrieved: $MEMBERS"
+          if [ -s /tmp/haviq_drop.txt ]; then
+            while IFS= read -r P; do
+              [ -z "$P" ] && continue
+              if [ -e "$P" ]; then rm -f "$P";
+              else find force-app -type f -name "${P}.*" -delete 2>/dev/null || true; fi
+            done < /tmp/haviq_drop.txt
+          fi
+          printf "%s" "$MEMBERS" > /tmp/haviq_members.txt
+          if [ -z "$MEMBERS" ]; then
+            echo "[haviq] The retrieve returned no components. Nothing will be"
+            echo "[haviq] committed — a commit here would delete the request file"
+            echo "[haviq] and report success having retrieved nothing."
+            exit 1
+          fi
+          python3 -c "import json;d=json.load(open('/tmp/haviq_retrieve.json'));ms=(d.get('result') or {}).get('messages') or [];ms=[ms] if isinstance(ms,dict) else ms;[print('[haviq] WARNING from retrieve: '+str(m.get('problem'))) for m in ms]" 2>/dev/null || true
+          git config user.email "ci@haviq.local"
+          git config user.name "HAV-IQ CI"
+          cp -f manifest/haviq-retrieve-keep.txt /tmp/haviq_keep.txt 2>/dev/null || true
+          rm -f manifest/haviq-retrieve.xml manifest/haviq-retrieve-keep.txt
+          git rm -q --cached --ignore-unmatch manifest/haviq-retrieve.xml manifest/haviq-retrieve-keep.txt >/dev/null 2>&1 || true
+          if [ -s /tmp/haviq_keep.txt ]; then
+            while IFS= read -r KD; do
+              [ -n "$KD" ] && git add -- "$KD" 2>/dev/null || true
+            done < /tmp/haviq_keep.txt
+          else
+            echo "[haviq] no keep-list in the request — refusing to guess"
+            echo "[haviq] which retrieved files are safe to commit."
+            exit 1
+          fi
+          if git diff --cached --quiet; then
+            echo "[haviq] nothing to commit — the retrieve produced no files."
+          else
+            git commit -m "chore: HAV-IQ CI retrieve [skip ci]"
+            n=0
+            until git push origin HEAD:dev 2>/tmp/haviq_push.err; do
+              n=$((n+1))
+              sed "s/^/[haviq]   /" /tmp/haviq_push.err || true
+              if grep -qiE "restrict|protected|permission|denied|403" /tmp/haviq_push.err; then
+                echo "[haviq] GitHub refused the push to dev. Branch protection on it"
+                echo "[haviq] blocks the workflow's GITHUB_TOKEN. Allow GitHub Actions to push to"
+                echo "[haviq] dev (or exempt it from the rule), then retry the deployment."
+                exit 1
+              fi
+              [ $n -ge 3 ] && echo "[haviq] push failed after $n attempts" && exit 1
+              echo "[haviq] push rejected — the branch moved. Rebasing (attempt $n)."
+              git pull --rebase origin dev || { \
+                echo "[haviq] REBASE CONFLICT. Someone edited the same component"; \
+                echo "[haviq] while this retrieve was running. Resolve it in HAV-IQ"; \
+                echo "[haviq] and retry — this job will not resolve it for you."; \
+                exit 1; }
+            done
+          fi
+      - name: Notify HAV-IQ
+        if: always()
+        env:
+          HQ_STATUS: ${{ job.status == 'success' && 'success' || 'failed' }}
+          HQ_BRANCH: ${{ github.ref_name }}
+          HQ_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          HAVIQ_PRIVATE_KEY: ${{ secrets.HAVIQ_PRIVATE_KEY }}
+          HAVIQ_CLIENT_ID: ${{ vars.HAVIQ_CLIENT_ID }}
+          HAVIQ_USERNAME: ${{ vars.HAVIQ_USERNAME }}
+          HAVIQ_URL: ${{ vars.HAVIQ_URL }}
+          SF_WEBHOOK_SECRET: ${{ secrets.SF_WEBHOOK_SECRET }}
+        run: |
+          grep -q "\[haviq-retrieve\]" /tmp/haviq_msg.txt 2>/dev/null || exit 0
+          echo "$HAVIQ_PRIVATE_KEY" > /tmp/haviq.key
+          HAVIQ_LOGIN_OUT=$(sf org login jwt --client-id "$HAVIQ_CLIENT_ID" --jwt-key-file /tmp/haviq.key --username "$HAVIQ_USERNAME" --instance-url "$HAVIQ_URL" --alias haviq-hub 2>&1) || true
+          SF_TOKEN=$(sf org auth show-access-token --target-org haviq-hub --json 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['result']['accessToken'])" 2>/dev/null || echo "")
+          case "$SF_TOKEN" in *[[:space:]]*) SF_TOKEN="" ;; esac
+          if [ -z "$SF_TOKEN" ]; then
+            echo "[haviq] callback SKIPPED — no access token. HAV-IQ will read this"
+            echo "[haviq] run's result itself within a few minutes. The JWT login said:"
+            echo "$HAVIQ_LOGIN_OUT" | head -6 | sed "s/^/[haviq]   /"
+          else
+            DEPID=$(sed -n "s/.*for deployment \([a-zA-Z0-9]*\).*/\1/p" /tmp/haviq_msg.txt | head -1)
+            MEMBERS=$(cat /tmp/haviq_members.txt 2>/dev/null || echo "")
+            BODY="{\"phase\":\"retrieve\",\"deploymentId\":\"$DEPID\",\"branch\":\"$HQ_BRANCH\",\"status\":\"$HQ_STATUS\",\"retrievedMembers\":\"$MEMBERS\",\"ciRunUrl\":\"$HQ_RUN_URL\"}"
+            HAVIQ_HTTP=$(curl -s -o /tmp/haviq_cb.out -w "%{http_code}" -X POST "$HAVIQ_URL/services/apexrest/haviq/pipeline/webhook" -H "Authorization: Bearer $SF_TOKEN" -H "Content-Type: application/json" -H "x-sf-devops-secret: $SF_WEBHOOK_SECRET" -d "$BODY" || echo "000")
+            echo "[haviq] retrieve callback HTTP $HAVIQ_HTTP"
+            [ "$HAVIQ_HTTP" = "200" ] || head -c 500 /tmp/haviq_cb.out 2>/dev/null | sed "s/^/[haviq]   /" || true
+            rm -f /tmp/haviq_cb.out
+          fi
+          rm -f /tmp/haviq.key server.key /tmp/haviq_members.txt
+
   # ── Rollback: dev1
   rollback_dev1:
     runs-on: ubuntu-latest
@@ -1299,6 +1436,139 @@ jobs:
             if [ "$HAVIQ_HTTP" = "401" ]; then echo "Callback rejected: check the SF_WEBHOOK_SECRET repository secret matches the pipeline webhook secret."; fi
           fi
           rm -f /tmp/haviq.key
+
+  # ── Retrieve from dev1 (RM-CI-RETRIEVE)
+  haviq_retrieve_dev1:
+    name: haviq:retrieve-dev1
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'push'
+      && github.ref_name == 'dev1'
+      && contains(github.event.head_commit.message, '[haviq-retrieve]')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install -g @salesforce/cli
+      - name: Retrieve and commit
+        env:
+          SF_JWT_KEY: ${{ secrets.SF_JWT_KEY_DEV1 }}
+        run: |
+          set -e
+          git log -1 --pretty=%B > /tmp/haviq_msg.txt
+          echo "$SF_JWT_KEY" > server.key
+          sf org login jwt --client-id ${{ vars.SF_CLIENT_ID_DEV1 }} --jwt-key-file server.key --username ${{ vars.SF_USERNAME_DEV1 }} --instance-url ${{ vars.SF_ORG_URL_DEV1 }} --alias haviq-source
+          if [ -f .forceignore ]; then
+            for T in $(grep -oE "<name>[A-Za-z]+</name>" manifest/haviq-retrieve.xml 2>/dev/null | sed "s/<[^>]*>//g" | sort -u); do
+              LT=$(echo "$T" | tr "[:upper:]" "[:lower:]")
+              if grep -qi "/${LT}s\?/" .forceignore; then
+                echo "[haviq] WARNING: .forceignore appears to exclude $T."
+                echo "[haviq] The CLI will write nothing for it and still exit 0."
+                echo "[haviq] Remove the matching line from .forceignore:"
+                grep -n -i "/${LT}s\?/" .forceignore | sed "s/^/[haviq]   /"
+              fi
+            done
+          fi
+          sf org list metadata-types --target-org haviq-source --json > /tmp/haviq_mdtypes.json 2>&1 || true
+          python3 -c "import json,re;raw=open('/tmp/haviq_mdtypes.json').read();raw=raw[raw.index(chr(123)):] if chr(123) in raw else '{}';objs=(json.loads(raw).get('result') or {}).get('metadataObjects') or [];sup=set();[sup.add(o['xmlName']) for o in objs if o.get('xmlName')];[sup.add(c) for o in objs for c in (o.get('childXmlNames') or [])];src=open('manifest/haviq-retrieve.xml').read();blocks=re.findall(r'<types>.*?</types>', src, re.S);nm=lambda b:(re.search(r'<name>(.*?)</name>', b) or [None,''])[1];keep=[b for b in blocks if not sup or nm(b) in sup];drop=sorted(nm(b) for b in blocks if sup and nm(b) not in sup);v=re.search(r'<version>.*?</version>', src);open('/tmp/haviq_manifest.xml','w').write('<?xml version=\"1.0\" encoding=\"UTF-8\"?>' + chr(10) + '<Package xmlns=\"http://soap.sforce.com/2006/04/metadata\">' + chr(10) + chr(10).join(keep) + chr(10) + (v.group(0) if v else '<version>62.0</version>') + chr(10) + '</Package>');print('[haviq] types asked for: '+str(len(blocks))+', supported by this org: '+str(len(keep))+', not available here: '+str(len(drop)));print('[haviq] not in this org: '+','.join(drop[:25])+(' and more' if len(drop)>25 else '')) if drop else None;print('[haviq] NOTE: could not read the org type list; asking for everything') if not sup else None" || cp -f manifest/haviq-retrieve.xml /tmp/haviq_manifest.xml
+          if ! grep -q "<name>" /tmp/haviq_manifest.xml 2>/dev/null; then
+            echo "[haviq] None of the requested types exist in this org. Nothing to"
+            echo "[haviq] retrieve. Narrow My Scope to types this org actually has."
+            exit 1
+          fi
+          sf project retrieve start --manifest /tmp/haviq_manifest.xml --target-org haviq-source --wait 30 --json > /tmp/haviq_retrieve.json || true
+          python3 -c "import json;d=json.load(open('/tmp/haviq_retrieve.json'));r=d.get('result') or {};rows=r.get('files') or r.get('fileProperties');print('[haviq] retrieve did not return files. Full result below.') if not rows else None;print('[haviq] '+json.dumps({k:v for k,v in r.items() if k not in ('files','fileProperties')})[:1500]) if not rows else None" 2>/dev/null || echo "[haviq] retrieve produced no readable JSON at all"
+          python3 -c "import json;raw=open('/tmp/haviq_retrieve.json').read();raw=raw[raw.index(chr(123)):] if chr(123) in raw else '{}';d=json.loads(raw); r=d.get('result') or {};rows=r.get('files') or r.get('fileProperties') or [];S=set(['c','e','mdt','b','x','kav','Share','History','Feed','ChangeEvent','r']);nsp=lambda n:(lambda p: len(p)>1 and not (len(p)==2 and p[1] in S))(n.replace('-','.').split('.')[-1].split('__'));man=lambda f: bool(f.get('namespacePrefix')) or (f.get('manageableState') not in (None,'unmanaged')) or nsp(f.get('fullName',''));ok=[f for f in rows if f.get('type') and f.get('fullName') and str(f.get('state','')).lower()!='failed' and not man(f)];mg=[f for f in rows if man(f)];open('/tmp/haviq_members.txt','w').write(','.join(sorted(set(f['type']+':'+f['fullName'] for f in ok))));open('/tmp/haviq_drop.txt','w').write(chr(10).join(f.get('filePath') or f.get('fullName') for f in mg));print('[haviq] managed components excluded: '+str(len(mg))+' of '+str(len(rows)))" 2>/dev/null || printf "" > /tmp/haviq_members.txt
+          MEMBERS=$(cat /tmp/haviq_members.txt 2>/dev/null || echo "")
+          echo "[haviq] retrieved: $MEMBERS"
+          if [ -s /tmp/haviq_drop.txt ]; then
+            while IFS= read -r P; do
+              [ -z "$P" ] && continue
+              if [ -e "$P" ]; then rm -f "$P";
+              else find force-app -type f -name "${P}.*" -delete 2>/dev/null || true; fi
+            done < /tmp/haviq_drop.txt
+          fi
+          printf "%s" "$MEMBERS" > /tmp/haviq_members.txt
+          if [ -z "$MEMBERS" ]; then
+            echo "[haviq] The retrieve returned no components. Nothing will be"
+            echo "[haviq] committed — a commit here would delete the request file"
+            echo "[haviq] and report success having retrieved nothing."
+            exit 1
+          fi
+          python3 -c "import json;d=json.load(open('/tmp/haviq_retrieve.json'));ms=(d.get('result') or {}).get('messages') or [];ms=[ms] if isinstance(ms,dict) else ms;[print('[haviq] WARNING from retrieve: '+str(m.get('problem'))) for m in ms]" 2>/dev/null || true
+          git config user.email "ci@haviq.local"
+          git config user.name "HAV-IQ CI"
+          cp -f manifest/haviq-retrieve-keep.txt /tmp/haviq_keep.txt 2>/dev/null || true
+          rm -f manifest/haviq-retrieve.xml manifest/haviq-retrieve-keep.txt
+          git rm -q --cached --ignore-unmatch manifest/haviq-retrieve.xml manifest/haviq-retrieve-keep.txt >/dev/null 2>&1 || true
+          if [ -s /tmp/haviq_keep.txt ]; then
+            while IFS= read -r KD; do
+              [ -n "$KD" ] && git add -- "$KD" 2>/dev/null || true
+            done < /tmp/haviq_keep.txt
+          else
+            echo "[haviq] no keep-list in the request — refusing to guess"
+            echo "[haviq] which retrieved files are safe to commit."
+            exit 1
+          fi
+          if git diff --cached --quiet; then
+            echo "[haviq] nothing to commit — the retrieve produced no files."
+          else
+            git commit -m "chore: HAV-IQ CI retrieve [skip ci]"
+            n=0
+            until git push origin HEAD:dev1 2>/tmp/haviq_push.err; do
+              n=$((n+1))
+              sed "s/^/[haviq]   /" /tmp/haviq_push.err || true
+              if grep -qiE "restrict|protected|permission|denied|403" /tmp/haviq_push.err; then
+                echo "[haviq] GitHub refused the push to dev1. Branch protection on it"
+                echo "[haviq] blocks the workflow's GITHUB_TOKEN. Allow GitHub Actions to push to"
+                echo "[haviq] dev1 (or exempt it from the rule), then retry the deployment."
+                exit 1
+              fi
+              [ $n -ge 3 ] && echo "[haviq] push failed after $n attempts" && exit 1
+              echo "[haviq] push rejected — the branch moved. Rebasing (attempt $n)."
+              git pull --rebase origin dev1 || { \
+                echo "[haviq] REBASE CONFLICT. Someone edited the same component"; \
+                echo "[haviq] while this retrieve was running. Resolve it in HAV-IQ"; \
+                echo "[haviq] and retry — this job will not resolve it for you."; \
+                exit 1; }
+            done
+          fi
+      - name: Notify HAV-IQ
+        if: always()
+        env:
+          HQ_STATUS: ${{ job.status == 'success' && 'success' || 'failed' }}
+          HQ_BRANCH: ${{ github.ref_name }}
+          HQ_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          HAVIQ_PRIVATE_KEY: ${{ secrets.HAVIQ_PRIVATE_KEY }}
+          HAVIQ_CLIENT_ID: ${{ vars.HAVIQ_CLIENT_ID }}
+          HAVIQ_USERNAME: ${{ vars.HAVIQ_USERNAME }}
+          HAVIQ_URL: ${{ vars.HAVIQ_URL }}
+          SF_WEBHOOK_SECRET: ${{ secrets.SF_WEBHOOK_SECRET }}
+        run: |
+          grep -q "\[haviq-retrieve\]" /tmp/haviq_msg.txt 2>/dev/null || exit 0
+          echo "$HAVIQ_PRIVATE_KEY" > /tmp/haviq.key
+          HAVIQ_LOGIN_OUT=$(sf org login jwt --client-id "$HAVIQ_CLIENT_ID" --jwt-key-file /tmp/haviq.key --username "$HAVIQ_USERNAME" --instance-url "$HAVIQ_URL" --alias haviq-hub 2>&1) || true
+          SF_TOKEN=$(sf org auth show-access-token --target-org haviq-hub --json 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['result']['accessToken'])" 2>/dev/null || echo "")
+          case "$SF_TOKEN" in *[[:space:]]*) SF_TOKEN="" ;; esac
+          if [ -z "$SF_TOKEN" ]; then
+            echo "[haviq] callback SKIPPED — no access token. HAV-IQ will read this"
+            echo "[haviq] run's result itself within a few minutes. The JWT login said:"
+            echo "$HAVIQ_LOGIN_OUT" | head -6 | sed "s/^/[haviq]   /"
+          else
+            DEPID=$(sed -n "s/.*for deployment \([a-zA-Z0-9]*\).*/\1/p" /tmp/haviq_msg.txt | head -1)
+            MEMBERS=$(cat /tmp/haviq_members.txt 2>/dev/null || echo "")
+            BODY="{\"phase\":\"retrieve\",\"deploymentId\":\"$DEPID\",\"branch\":\"$HQ_BRANCH\",\"status\":\"$HQ_STATUS\",\"retrievedMembers\":\"$MEMBERS\",\"ciRunUrl\":\"$HQ_RUN_URL\"}"
+            HAVIQ_HTTP=$(curl -s -o /tmp/haviq_cb.out -w "%{http_code}" -X POST "$HAVIQ_URL/services/apexrest/haviq/pipeline/webhook" -H "Authorization: Bearer $SF_TOKEN" -H "Content-Type: application/json" -H "x-sf-devops-secret: $SF_WEBHOOK_SECRET" -d "$BODY" || echo "000")
+            echo "[haviq] retrieve callback HTTP $HAVIQ_HTTP"
+            [ "$HAVIQ_HTTP" = "200" ] || head -c 500 /tmp/haviq_cb.out 2>/dev/null | sed "s/^/[haviq]   /" || true
+            rm -f /tmp/haviq_cb.out
+          fi
+          rm -f /tmp/haviq.key server.key /tmp/haviq_members.txt
 
   # ── Rollback: qa
   rollback_qa:
@@ -1403,6 +1673,139 @@ jobs:
           fi
           rm -f /tmp/haviq.key
 
+  # ── Retrieve from qa (RM-CI-RETRIEVE)
+  haviq_retrieve_qa:
+    name: haviq:retrieve-qa
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'push'
+      && github.ref_name == 'qa'
+      && contains(github.event.head_commit.message, '[haviq-retrieve]')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install -g @salesforce/cli
+      - name: Retrieve and commit
+        env:
+          SF_JWT_KEY: ${{ secrets.SF_JWT_KEY_QA }}
+        run: |
+          set -e
+          git log -1 --pretty=%B > /tmp/haviq_msg.txt
+          echo "$SF_JWT_KEY" > server.key
+          sf org login jwt --client-id ${{ vars.SF_CLIENT_ID_QA }} --jwt-key-file server.key --username ${{ vars.SF_USERNAME_QA }} --instance-url ${{ vars.SF_ORG_URL_QA }} --alias haviq-source
+          if [ -f .forceignore ]; then
+            for T in $(grep -oE "<name>[A-Za-z]+</name>" manifest/haviq-retrieve.xml 2>/dev/null | sed "s/<[^>]*>//g" | sort -u); do
+              LT=$(echo "$T" | tr "[:upper:]" "[:lower:]")
+              if grep -qi "/${LT}s\?/" .forceignore; then
+                echo "[haviq] WARNING: .forceignore appears to exclude $T."
+                echo "[haviq] The CLI will write nothing for it and still exit 0."
+                echo "[haviq] Remove the matching line from .forceignore:"
+                grep -n -i "/${LT}s\?/" .forceignore | sed "s/^/[haviq]   /"
+              fi
+            done
+          fi
+          sf org list metadata-types --target-org haviq-source --json > /tmp/haviq_mdtypes.json 2>&1 || true
+          python3 -c "import json,re;raw=open('/tmp/haviq_mdtypes.json').read();raw=raw[raw.index(chr(123)):] if chr(123) in raw else '{}';objs=(json.loads(raw).get('result') or {}).get('metadataObjects') or [];sup=set();[sup.add(o['xmlName']) for o in objs if o.get('xmlName')];[sup.add(c) for o in objs for c in (o.get('childXmlNames') or [])];src=open('manifest/haviq-retrieve.xml').read();blocks=re.findall(r'<types>.*?</types>', src, re.S);nm=lambda b:(re.search(r'<name>(.*?)</name>', b) or [None,''])[1];keep=[b for b in blocks if not sup or nm(b) in sup];drop=sorted(nm(b) for b in blocks if sup and nm(b) not in sup);v=re.search(r'<version>.*?</version>', src);open('/tmp/haviq_manifest.xml','w').write('<?xml version=\"1.0\" encoding=\"UTF-8\"?>' + chr(10) + '<Package xmlns=\"http://soap.sforce.com/2006/04/metadata\">' + chr(10) + chr(10).join(keep) + chr(10) + (v.group(0) if v else '<version>62.0</version>') + chr(10) + '</Package>');print('[haviq] types asked for: '+str(len(blocks))+', supported by this org: '+str(len(keep))+', not available here: '+str(len(drop)));print('[haviq] not in this org: '+','.join(drop[:25])+(' and more' if len(drop)>25 else '')) if drop else None;print('[haviq] NOTE: could not read the org type list; asking for everything') if not sup else None" || cp -f manifest/haviq-retrieve.xml /tmp/haviq_manifest.xml
+          if ! grep -q "<name>" /tmp/haviq_manifest.xml 2>/dev/null; then
+            echo "[haviq] None of the requested types exist in this org. Nothing to"
+            echo "[haviq] retrieve. Narrow My Scope to types this org actually has."
+            exit 1
+          fi
+          sf project retrieve start --manifest /tmp/haviq_manifest.xml --target-org haviq-source --wait 30 --json > /tmp/haviq_retrieve.json || true
+          python3 -c "import json;d=json.load(open('/tmp/haviq_retrieve.json'));r=d.get('result') or {};rows=r.get('files') or r.get('fileProperties');print('[haviq] retrieve did not return files. Full result below.') if not rows else None;print('[haviq] '+json.dumps({k:v for k,v in r.items() if k not in ('files','fileProperties')})[:1500]) if not rows else None" 2>/dev/null || echo "[haviq] retrieve produced no readable JSON at all"
+          python3 -c "import json;raw=open('/tmp/haviq_retrieve.json').read();raw=raw[raw.index(chr(123)):] if chr(123) in raw else '{}';d=json.loads(raw); r=d.get('result') or {};rows=r.get('files') or r.get('fileProperties') or [];S=set(['c','e','mdt','b','x','kav','Share','History','Feed','ChangeEvent','r']);nsp=lambda n:(lambda p: len(p)>1 and not (len(p)==2 and p[1] in S))(n.replace('-','.').split('.')[-1].split('__'));man=lambda f: bool(f.get('namespacePrefix')) or (f.get('manageableState') not in (None,'unmanaged')) or nsp(f.get('fullName',''));ok=[f for f in rows if f.get('type') and f.get('fullName') and str(f.get('state','')).lower()!='failed' and not man(f)];mg=[f for f in rows if man(f)];open('/tmp/haviq_members.txt','w').write(','.join(sorted(set(f['type']+':'+f['fullName'] for f in ok))));open('/tmp/haviq_drop.txt','w').write(chr(10).join(f.get('filePath') or f.get('fullName') for f in mg));print('[haviq] managed components excluded: '+str(len(mg))+' of '+str(len(rows)))" 2>/dev/null || printf "" > /tmp/haviq_members.txt
+          MEMBERS=$(cat /tmp/haviq_members.txt 2>/dev/null || echo "")
+          echo "[haviq] retrieved: $MEMBERS"
+          if [ -s /tmp/haviq_drop.txt ]; then
+            while IFS= read -r P; do
+              [ -z "$P" ] && continue
+              if [ -e "$P" ]; then rm -f "$P";
+              else find force-app -type f -name "${P}.*" -delete 2>/dev/null || true; fi
+            done < /tmp/haviq_drop.txt
+          fi
+          printf "%s" "$MEMBERS" > /tmp/haviq_members.txt
+          if [ -z "$MEMBERS" ]; then
+            echo "[haviq] The retrieve returned no components. Nothing will be"
+            echo "[haviq] committed — a commit here would delete the request file"
+            echo "[haviq] and report success having retrieved nothing."
+            exit 1
+          fi
+          python3 -c "import json;d=json.load(open('/tmp/haviq_retrieve.json'));ms=(d.get('result') or {}).get('messages') or [];ms=[ms] if isinstance(ms,dict) else ms;[print('[haviq] WARNING from retrieve: '+str(m.get('problem'))) for m in ms]" 2>/dev/null || true
+          git config user.email "ci@haviq.local"
+          git config user.name "HAV-IQ CI"
+          cp -f manifest/haviq-retrieve-keep.txt /tmp/haviq_keep.txt 2>/dev/null || true
+          rm -f manifest/haviq-retrieve.xml manifest/haviq-retrieve-keep.txt
+          git rm -q --cached --ignore-unmatch manifest/haviq-retrieve.xml manifest/haviq-retrieve-keep.txt >/dev/null 2>&1 || true
+          if [ -s /tmp/haviq_keep.txt ]; then
+            while IFS= read -r KD; do
+              [ -n "$KD" ] && git add -- "$KD" 2>/dev/null || true
+            done < /tmp/haviq_keep.txt
+          else
+            echo "[haviq] no keep-list in the request — refusing to guess"
+            echo "[haviq] which retrieved files are safe to commit."
+            exit 1
+          fi
+          if git diff --cached --quiet; then
+            echo "[haviq] nothing to commit — the retrieve produced no files."
+          else
+            git commit -m "chore: HAV-IQ CI retrieve [skip ci]"
+            n=0
+            until git push origin HEAD:qa 2>/tmp/haviq_push.err; do
+              n=$((n+1))
+              sed "s/^/[haviq]   /" /tmp/haviq_push.err || true
+              if grep -qiE "restrict|protected|permission|denied|403" /tmp/haviq_push.err; then
+                echo "[haviq] GitHub refused the push to qa. Branch protection on it"
+                echo "[haviq] blocks the workflow's GITHUB_TOKEN. Allow GitHub Actions to push to"
+                echo "[haviq] qa (or exempt it from the rule), then retry the deployment."
+                exit 1
+              fi
+              [ $n -ge 3 ] && echo "[haviq] push failed after $n attempts" && exit 1
+              echo "[haviq] push rejected — the branch moved. Rebasing (attempt $n)."
+              git pull --rebase origin qa || { \
+                echo "[haviq] REBASE CONFLICT. Someone edited the same component"; \
+                echo "[haviq] while this retrieve was running. Resolve it in HAV-IQ"; \
+                echo "[haviq] and retry — this job will not resolve it for you."; \
+                exit 1; }
+            done
+          fi
+      - name: Notify HAV-IQ
+        if: always()
+        env:
+          HQ_STATUS: ${{ job.status == 'success' && 'success' || 'failed' }}
+          HQ_BRANCH: ${{ github.ref_name }}
+          HQ_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          HAVIQ_PRIVATE_KEY: ${{ secrets.HAVIQ_PRIVATE_KEY }}
+          HAVIQ_CLIENT_ID: ${{ vars.HAVIQ_CLIENT_ID }}
+          HAVIQ_USERNAME: ${{ vars.HAVIQ_USERNAME }}
+          HAVIQ_URL: ${{ vars.HAVIQ_URL }}
+          SF_WEBHOOK_SECRET: ${{ secrets.SF_WEBHOOK_SECRET }}
+        run: |
+          grep -q "\[haviq-retrieve\]" /tmp/haviq_msg.txt 2>/dev/null || exit 0
+          echo "$HAVIQ_PRIVATE_KEY" > /tmp/haviq.key
+          HAVIQ_LOGIN_OUT=$(sf org login jwt --client-id "$HAVIQ_CLIENT_ID" --jwt-key-file /tmp/haviq.key --username "$HAVIQ_USERNAME" --instance-url "$HAVIQ_URL" --alias haviq-hub 2>&1) || true
+          SF_TOKEN=$(sf org auth show-access-token --target-org haviq-hub --json 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['result']['accessToken'])" 2>/dev/null || echo "")
+          case "$SF_TOKEN" in *[[:space:]]*) SF_TOKEN="" ;; esac
+          if [ -z "$SF_TOKEN" ]; then
+            echo "[haviq] callback SKIPPED — no access token. HAV-IQ will read this"
+            echo "[haviq] run's result itself within a few minutes. The JWT login said:"
+            echo "$HAVIQ_LOGIN_OUT" | head -6 | sed "s/^/[haviq]   /"
+          else
+            DEPID=$(sed -n "s/.*for deployment \([a-zA-Z0-9]*\).*/\1/p" /tmp/haviq_msg.txt | head -1)
+            MEMBERS=$(cat /tmp/haviq_members.txt 2>/dev/null || echo "")
+            BODY="{\"phase\":\"retrieve\",\"deploymentId\":\"$DEPID\",\"branch\":\"$HQ_BRANCH\",\"status\":\"$HQ_STATUS\",\"retrievedMembers\":\"$MEMBERS\",\"ciRunUrl\":\"$HQ_RUN_URL\"}"
+            HAVIQ_HTTP=$(curl -s -o /tmp/haviq_cb.out -w "%{http_code}" -X POST "$HAVIQ_URL/services/apexrest/haviq/pipeline/webhook" -H "Authorization: Bearer $SF_TOKEN" -H "Content-Type: application/json" -H "x-sf-devops-secret: $SF_WEBHOOK_SECRET" -d "$BODY" || echo "000")
+            echo "[haviq] retrieve callback HTTP $HAVIQ_HTTP"
+            [ "$HAVIQ_HTTP" = "200" ] || head -c 500 /tmp/haviq_cb.out 2>/dev/null | sed "s/^/[haviq]   /" || true
+            rm -f /tmp/haviq_cb.out
+          fi
+          rm -f /tmp/haviq.key server.key /tmp/haviq_members.txt
+
   # ── Rollback: production
   rollback_production:
     runs-on: ubuntu-latest
@@ -1505,6 +1908,139 @@ jobs:
             if [ "$HAVIQ_HTTP" = "401" ]; then echo "Callback rejected: check the SF_WEBHOOK_SECRET repository secret matches the pipeline webhook secret."; fi
           fi
           rm -f /tmp/haviq.key
+
+  # ── Retrieve from production (RM-CI-RETRIEVE)
+  haviq_retrieve_production:
+    name: haviq:retrieve-production
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'push'
+      && github.ref_name == 'production'
+      && contains(github.event.head_commit.message, '[haviq-retrieve]')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install -g @salesforce/cli
+      - name: Retrieve and commit
+        env:
+          SF_JWT_KEY: ${{ secrets.SF_JWT_KEY_PRODUCTION }}
+        run: |
+          set -e
+          git log -1 --pretty=%B > /tmp/haviq_msg.txt
+          echo "$SF_JWT_KEY" > server.key
+          sf org login jwt --client-id ${{ vars.SF_CLIENT_ID_PRODUCTION }} --jwt-key-file server.key --username ${{ vars.SF_USERNAME_PRODUCTION }} --instance-url ${{ vars.SF_ORG_URL_PRODUCTION }} --alias haviq-source
+          if [ -f .forceignore ]; then
+            for T in $(grep -oE "<name>[A-Za-z]+</name>" manifest/haviq-retrieve.xml 2>/dev/null | sed "s/<[^>]*>//g" | sort -u); do
+              LT=$(echo "$T" | tr "[:upper:]" "[:lower:]")
+              if grep -qi "/${LT}s\?/" .forceignore; then
+                echo "[haviq] WARNING: .forceignore appears to exclude $T."
+                echo "[haviq] The CLI will write nothing for it and still exit 0."
+                echo "[haviq] Remove the matching line from .forceignore:"
+                grep -n -i "/${LT}s\?/" .forceignore | sed "s/^/[haviq]   /"
+              fi
+            done
+          fi
+          sf org list metadata-types --target-org haviq-source --json > /tmp/haviq_mdtypes.json 2>&1 || true
+          python3 -c "import json,re;raw=open('/tmp/haviq_mdtypes.json').read();raw=raw[raw.index(chr(123)):] if chr(123) in raw else '{}';objs=(json.loads(raw).get('result') or {}).get('metadataObjects') or [];sup=set();[sup.add(o['xmlName']) for o in objs if o.get('xmlName')];[sup.add(c) for o in objs for c in (o.get('childXmlNames') or [])];src=open('manifest/haviq-retrieve.xml').read();blocks=re.findall(r'<types>.*?</types>', src, re.S);nm=lambda b:(re.search(r'<name>(.*?)</name>', b) or [None,''])[1];keep=[b for b in blocks if not sup or nm(b) in sup];drop=sorted(nm(b) for b in blocks if sup and nm(b) not in sup);v=re.search(r'<version>.*?</version>', src);open('/tmp/haviq_manifest.xml','w').write('<?xml version=\"1.0\" encoding=\"UTF-8\"?>' + chr(10) + '<Package xmlns=\"http://soap.sforce.com/2006/04/metadata\">' + chr(10) + chr(10).join(keep) + chr(10) + (v.group(0) if v else '<version>62.0</version>') + chr(10) + '</Package>');print('[haviq] types asked for: '+str(len(blocks))+', supported by this org: '+str(len(keep))+', not available here: '+str(len(drop)));print('[haviq] not in this org: '+','.join(drop[:25])+(' and more' if len(drop)>25 else '')) if drop else None;print('[haviq] NOTE: could not read the org type list; asking for everything') if not sup else None" || cp -f manifest/haviq-retrieve.xml /tmp/haviq_manifest.xml
+          if ! grep -q "<name>" /tmp/haviq_manifest.xml 2>/dev/null; then
+            echo "[haviq] None of the requested types exist in this org. Nothing to"
+            echo "[haviq] retrieve. Narrow My Scope to types this org actually has."
+            exit 1
+          fi
+          sf project retrieve start --manifest /tmp/haviq_manifest.xml --target-org haviq-source --wait 30 --json > /tmp/haviq_retrieve.json || true
+          python3 -c "import json;d=json.load(open('/tmp/haviq_retrieve.json'));r=d.get('result') or {};rows=r.get('files') or r.get('fileProperties');print('[haviq] retrieve did not return files. Full result below.') if not rows else None;print('[haviq] '+json.dumps({k:v for k,v in r.items() if k not in ('files','fileProperties')})[:1500]) if not rows else None" 2>/dev/null || echo "[haviq] retrieve produced no readable JSON at all"
+          python3 -c "import json;raw=open('/tmp/haviq_retrieve.json').read();raw=raw[raw.index(chr(123)):] if chr(123) in raw else '{}';d=json.loads(raw); r=d.get('result') or {};rows=r.get('files') or r.get('fileProperties') or [];S=set(['c','e','mdt','b','x','kav','Share','History','Feed','ChangeEvent','r']);nsp=lambda n:(lambda p: len(p)>1 and not (len(p)==2 and p[1] in S))(n.replace('-','.').split('.')[-1].split('__'));man=lambda f: bool(f.get('namespacePrefix')) or (f.get('manageableState') not in (None,'unmanaged')) or nsp(f.get('fullName',''));ok=[f for f in rows if f.get('type') and f.get('fullName') and str(f.get('state','')).lower()!='failed' and not man(f)];mg=[f for f in rows if man(f)];open('/tmp/haviq_members.txt','w').write(','.join(sorted(set(f['type']+':'+f['fullName'] for f in ok))));open('/tmp/haviq_drop.txt','w').write(chr(10).join(f.get('filePath') or f.get('fullName') for f in mg));print('[haviq] managed components excluded: '+str(len(mg))+' of '+str(len(rows)))" 2>/dev/null || printf "" > /tmp/haviq_members.txt
+          MEMBERS=$(cat /tmp/haviq_members.txt 2>/dev/null || echo "")
+          echo "[haviq] retrieved: $MEMBERS"
+          if [ -s /tmp/haviq_drop.txt ]; then
+            while IFS= read -r P; do
+              [ -z "$P" ] && continue
+              if [ -e "$P" ]; then rm -f "$P";
+              else find force-app -type f -name "${P}.*" -delete 2>/dev/null || true; fi
+            done < /tmp/haviq_drop.txt
+          fi
+          printf "%s" "$MEMBERS" > /tmp/haviq_members.txt
+          if [ -z "$MEMBERS" ]; then
+            echo "[haviq] The retrieve returned no components. Nothing will be"
+            echo "[haviq] committed — a commit here would delete the request file"
+            echo "[haviq] and report success having retrieved nothing."
+            exit 1
+          fi
+          python3 -c "import json;d=json.load(open('/tmp/haviq_retrieve.json'));ms=(d.get('result') or {}).get('messages') or [];ms=[ms] if isinstance(ms,dict) else ms;[print('[haviq] WARNING from retrieve: '+str(m.get('problem'))) for m in ms]" 2>/dev/null || true
+          git config user.email "ci@haviq.local"
+          git config user.name "HAV-IQ CI"
+          cp -f manifest/haviq-retrieve-keep.txt /tmp/haviq_keep.txt 2>/dev/null || true
+          rm -f manifest/haviq-retrieve.xml manifest/haviq-retrieve-keep.txt
+          git rm -q --cached --ignore-unmatch manifest/haviq-retrieve.xml manifest/haviq-retrieve-keep.txt >/dev/null 2>&1 || true
+          if [ -s /tmp/haviq_keep.txt ]; then
+            while IFS= read -r KD; do
+              [ -n "$KD" ] && git add -- "$KD" 2>/dev/null || true
+            done < /tmp/haviq_keep.txt
+          else
+            echo "[haviq] no keep-list in the request — refusing to guess"
+            echo "[haviq] which retrieved files are safe to commit."
+            exit 1
+          fi
+          if git diff --cached --quiet; then
+            echo "[haviq] nothing to commit — the retrieve produced no files."
+          else
+            git commit -m "chore: HAV-IQ CI retrieve [skip ci]"
+            n=0
+            until git push origin HEAD:production 2>/tmp/haviq_push.err; do
+              n=$((n+1))
+              sed "s/^/[haviq]   /" /tmp/haviq_push.err || true
+              if grep -qiE "restrict|protected|permission|denied|403" /tmp/haviq_push.err; then
+                echo "[haviq] GitHub refused the push to production. Branch protection on it"
+                echo "[haviq] blocks the workflow's GITHUB_TOKEN. Allow GitHub Actions to push to"
+                echo "[haviq] production (or exempt it from the rule), then retry the deployment."
+                exit 1
+              fi
+              [ $n -ge 3 ] && echo "[haviq] push failed after $n attempts" && exit 1
+              echo "[haviq] push rejected — the branch moved. Rebasing (attempt $n)."
+              git pull --rebase origin production || { \
+                echo "[haviq] REBASE CONFLICT. Someone edited the same component"; \
+                echo "[haviq] while this retrieve was running. Resolve it in HAV-IQ"; \
+                echo "[haviq] and retry — this job will not resolve it for you."; \
+                exit 1; }
+            done
+          fi
+      - name: Notify HAV-IQ
+        if: always()
+        env:
+          HQ_STATUS: ${{ job.status == 'success' && 'success' || 'failed' }}
+          HQ_BRANCH: ${{ github.ref_name }}
+          HQ_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          HAVIQ_PRIVATE_KEY: ${{ secrets.HAVIQ_PRIVATE_KEY }}
+          HAVIQ_CLIENT_ID: ${{ vars.HAVIQ_CLIENT_ID }}
+          HAVIQ_USERNAME: ${{ vars.HAVIQ_USERNAME }}
+          HAVIQ_URL: ${{ vars.HAVIQ_URL }}
+          SF_WEBHOOK_SECRET: ${{ secrets.SF_WEBHOOK_SECRET }}
+        run: |
+          grep -q "\[haviq-retrieve\]" /tmp/haviq_msg.txt 2>/dev/null || exit 0
+          echo "$HAVIQ_PRIVATE_KEY" > /tmp/haviq.key
+          HAVIQ_LOGIN_OUT=$(sf org login jwt --client-id "$HAVIQ_CLIENT_ID" --jwt-key-file /tmp/haviq.key --username "$HAVIQ_USERNAME" --instance-url "$HAVIQ_URL" --alias haviq-hub 2>&1) || true
+          SF_TOKEN=$(sf org auth show-access-token --target-org haviq-hub --json 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);print(d['result']['accessToken'])" 2>/dev/null || echo "")
+          case "$SF_TOKEN" in *[[:space:]]*) SF_TOKEN="" ;; esac
+          if [ -z "$SF_TOKEN" ]; then
+            echo "[haviq] callback SKIPPED — no access token. HAV-IQ will read this"
+            echo "[haviq] run's result itself within a few minutes. The JWT login said:"
+            echo "$HAVIQ_LOGIN_OUT" | head -6 | sed "s/^/[haviq]   /"
+          else
+            DEPID=$(sed -n "s/.*for deployment \([a-zA-Z0-9]*\).*/\1/p" /tmp/haviq_msg.txt | head -1)
+            MEMBERS=$(cat /tmp/haviq_members.txt 2>/dev/null || echo "")
+            BODY="{\"phase\":\"retrieve\",\"deploymentId\":\"$DEPID\",\"branch\":\"$HQ_BRANCH\",\"status\":\"$HQ_STATUS\",\"retrievedMembers\":\"$MEMBERS\",\"ciRunUrl\":\"$HQ_RUN_URL\"}"
+            HAVIQ_HTTP=$(curl -s -o /tmp/haviq_cb.out -w "%{http_code}" -X POST "$HAVIQ_URL/services/apexrest/haviq/pipeline/webhook" -H "Authorization: Bearer $SF_TOKEN" -H "Content-Type: application/json" -H "x-sf-devops-secret: $SF_WEBHOOK_SECRET" -d "$BODY" || echo "000")
+            echo "[haviq] retrieve callback HTTP $HAVIQ_HTTP"
+            [ "$HAVIQ_HTTP" = "200" ] || head -c 500 /tmp/haviq_cb.out 2>/dev/null | sed "s/^/[haviq]   /" || true
+            rm -f /tmp/haviq_cb.out
+          fi
+          rm -f /tmp/haviq.key server.key /tmp/haviq_members.txt
 
   # ── Feature PR → target stage (RM-Z8)
   deploy_feature:
