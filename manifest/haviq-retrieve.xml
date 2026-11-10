@@ -7,6 +7,8 @@
 -->
 <Package xmlns="http://soap.sforce.com/2006/04/metadata">
     <types>
+        <members>TestOctober12__c</members>
+        <name>CustomObject</name>
         <members>Profile Oct12</members>
         <name>Profile</name>
     </types>
