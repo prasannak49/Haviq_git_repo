@@ -9,6 +9,8 @@
     <types>
         <members>TestOctober12__c</members>
         <name>CustomObject</name>
+        <members>Profile Oct12</members>
+        <name>Profile</name>
     </types>
     <version>62.0</version>
 </Package>
